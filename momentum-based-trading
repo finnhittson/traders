@@ -1,0 +1,520 @@
+import alpaca_trade_api as tradeapi
+import requests
+import time
+from ta import trend
+import numpy as np
+import datetime
+from datetime import datetime, timedelta 
+from pytz import timezone
+import pytz
+import math
+import websocket, json
+import pandas
+import timeit
+
+# Used for connecting to the Alpaca websocket
+base_url = "https://paper-api.alpaca.markets"
+key_id = "PKI81TWCXACB0ZK1RD73"
+secret_key = "rOP4ANEtfUv1opiSoznHWK8Y4P0tIhEyT4DB7dvC"
+api = tradeapi.REST(base_url = base_url, key_id = key_id, secret_key = secret_key)
+
+session = requests.session()
+
+# Used selecting appropriate stocks within our buying capabilities
+min_share_price = 2.0
+max_share_price = 10.0
+min_last_dv = 500000
+percent_change = 0.025
+
+# Used as security measures
+default_stop = 0.7
+risk = 0.001
+
+# Time variables used to calculate the open time, close time, time to close, etc
+nyc = timezone('America/New_York')
+today = datetime.today().astimezone(nyc)
+today_str = datetime.today().astimezone(nyc).strftime('%Y-%m-%d')
+calendar = api.get_calendar(start=today_str, end=today_str)[0]
+market_open = today.replace(
+    hour = calendar.open.hour,
+    minute = calendar.open.minute,
+    second = 0)
+market_open = market_open.astimezone(nyc)
+market_close = today.replace(
+    hour = calendar.close.hour,
+    minute = calendar.close.minute,
+    second = 0)
+market_close = market_close.astimezone(nyc)
+current_dt = datetime.today().astimezone(nyc)
+since_market_open = current_dt - market_open
+
+# Running variables holding security data
+sub10_symbol_list = ['CETX', 'COTY', 'GBR', 'AAC', 'JWSM', 'LOAN', 'NEWP', 'OSI', 'IMRN', 'SVA', 'MF', 'RVACU', 'BGI', 'SBII', 'AJAX', 'AAC.U', 'AACG', 'AAIC', 'AAME', 'AAOI', 'AAQC', 'AATC', 'AAU', 'ABEO', 'ABEV', 'ABGI', 'ABIO', 'ABUS', 'ABVC', 'ACAH', 'ACAHU', 'ACB', 'ACBA', 'ACCO', 'ACER', 'ACET', 'ACEV', 'ACHL', 'ACHV', 'ACIC', 'ACII', 'ACII.U', 'ACIU', 'ACKIT', 'ACOR', 'ACQR', 'ACQRU', 'ACRO.U', 'ACRX', 'ACST', 'ACTD', 'ACTG', 'ACXP', 'ADAP', 'ADER', 'ADES', 'ADEX', 'ADEX.U', 'ADF', 'ADFI', 'ADIL', 'ADMA', 'ADMP', 'ADMS', 'ADN', 'ADOCR', 'ADRA', 'ADT', 'ADTX', 'ADV', 'ADVM', 'ADXS', 'AEAC', 'AEF', 'AEG', 'AEHL', 'AEHR', 'AEI', 'AEMD', 'AENZ', 'AESE', 'AEVA', 'AEY', 'AEZS', 'AFAQ', 'AFAQU', 'AFI', 'AFIF', 'AFIN', 'AFMD', 'AGAC', 'AGBAR', 'AGCB', 'AGE', 'AGEN', 'AGFS', 'AGGR', 'AGI', 'AGLE', 'AGMH', 'AGRI', 'AGRO', 'AGRX', 'AGS', 'AGTC', 'AHAC', 'AHPI', 'AIH', 'AIHS', 'AIKI', 'AIM', 'AIRI', 'AIV', 'AKBA', 'AKIC', 'AKTS', 'AKTX', 'AKU', 'ALACR', 'ALCC', 'ALDX', 'ALF', 'ALIM', 'ALJJ', 'ALNA', 'ALPAU', 'ALPN', 'ALRN', 'ALTO', 'ALTU', 'ALYA', 'ALZN', 'AM', 'AMAO', 'AMBO', 'AMCIU', 'AMHC', 'AMHCU', 'AMPE', 'AMPG', 'AMPI', 'AMPI.U', 'AMPY', 'AMRN', 'AMRX', 'AMS', 'AMST', 'AMTX', 'ANAC', 'ANAC.U', 'ANEB', 'ANIX', 'ANPC', 'ANTE', 'ANY', 'ANZU', 'ANZUU', 'AP', 'APACU', 'APDN', 'APEN', 'APGB', 'APGB.U', 'APM', 'APOP', 'APRE', 'APRN', 'APSG', 'APT', 'APTMU', 'APTO', 'APTX', 'APWC', 'APYX', 'AQB', 'AQMS', 'AQST', 'ARAV', 'ARAY', 'ARBG', 'ARBGU', 'ARC', 'ARCO', 'ARDS', 'ARDX', 'AREC', 'ARKO', 'ARLO', 'ARLP', 'ARMP', 'AROC', 'ARPO', 'ARRW', 'ARTA', 'ARTAU', 'ARTL', 'ARTW', 'ARYE', 'ASAQ', 'ASAX', 'ASC', 'ASG', 'ASLN', 'ASM', 'ASMB', 'ASPC', 'ASPS', 'ASPU', 'ASRT', 'ASRV', 'ASTC', 'ASUR', 'ASX', 'ASXC', 'ASYS', 'ASZ', 'ASZ.U', 'ATA', 'ATAQ', 'ATAQ.U', 'ATAX', 'ATER', 'ATHA', 'ATHE', 'ATHN', 'ATHX', 'ATIF', 'ATIP', 'ATMR', 'ATNF', 'ATNM', 'ATNX', 'ATOS', 'ATRS', 'ATSPT', 'ATSPU', 'ATVC', 'ATVCU', 'ATXI', 'ATY', 'AUD', 'AUMN', 'AURC', 'AUS', 'AUTL', 'AUTO', 'AUUD', 'AUVI', 'AUY', 'AVAH', 'AVAL', 'AVAN', 'AVCO', 'AVCT', 'AVDL', 'AVEO', 'AVGR', 'AVRO', 'AWH', 'AWP', 'AWRE', 'AWX', 'AXDX', 'AXL', 'AXLA', 'AXTI', 'AXU', 'AYRO', 'AYTU', 'AZRX', 'AZYO', 'BALT', 'BAOS', 'BARK', 'BBAR', 'BBCP', 'BBD', 'BBDO', 'BBGI', 'BBI', 'BBIG', 'BBVA', 'BCAC', 'BCDA', 'BCEL', 'BCLI', 'BCTG', 'BCTX', 'BCX', 'BCYP', 'BDR', 'BDSI', 'BDSX', 'BDTX', 'BEDU', 'BENE', 'BENER', 'BEST', 'BFRA', 'BGCP', 'BGIO', 'BGR', 'BGRY', 'BGSX', 'BGSX.U', 'BGY', 'BHAT', 'BHG', 'BHR', 'BHSE', 'BHTG', 'BIMI', 'BIOC', 'BIOL', 'BIOT', 'BITE', 'BITE.U', 'BITF', 'BKCC', 'BKD', 'BKEP', 'BKEPP', 'BKT', 'BKTI', 'BKYI', 'BLCM', 'BLCT', 'BLDE', 'BLIN', 'BLNGU', 'BLPH', 'BLRX', 'BLSA', 'BLTS', 'BLU', 'BLUA', 'BLUA.U', 'BMRA', 'BNED', 'BNGO', 'BNSO', 'BNTC', 'BOAC', 'BOAS', 'BOAS.U', 'BODY', 'BORR', 'BOSC', 'BOWX', 'BOXL', 'BPT', 'BPTH', 'BQ', 'BRCN', 'BREZR', 'BRFS', 'BRIV', 'BRIVU', 'BRLIR', 'BRN', 'BROG', 'BRPM', 'BRQS', 'BRSP', 'BRW', 'BRY', 'BSBR']
+symbol_list = []
+tickers = []
+volatility_factor = {}
+max_candle = {}
+minute_history = {}
+minute_history_df = {}
+positions = {}
+stop_prices = {}
+max_price = {}
+prev_day_volume = {}
+prev_day_close = {}
+
+# Used for configuring setup
+message_count = 0
+first_call = True
+unsubscribe = False
+listen_slowly = {}
+ws = websocket.WebSocketApp("wss://stream.data.alpaca.markets/v2/iex")
+
+def set_listen_slowly(new_symbol_list):
+    global listen_slowly
+    listen_slowly = {"action":"subscribe","bars":new_symbol_list}
+    return
+
+def prev_day_info(symbol_List):
+
+    global symbol_list
+    global volatility_factor
+    global prev_day_volume
+    global prev_day_close
+
+    for symbol in symbol_List:
+        barset = get_historical_data(symbol, prev_day = True)
+        volume = 0
+
+        for bar in barset[symbol]:
+
+            if bar is not None:
+                volume += bar.v
+            
+            if volume * barset[symbol][-1].c > min_last_dv:
+                prev_day_volume[symbol] = volume
+                prev_day_close[symbol] = barset[symbol][-1].c
+
+        time.sleep(0.5)
+
+    return
+
+def load_tickers():
+    
+    global ws
+    
+    ws = websocket.WebSocketApp(
+        "wss://stream.data.alpaca.markets/v2/iex", 
+        on_open = on_open,
+        on_message = on_message
+    )
+    ws.run_forever()
+    return
+
+def on_open(ws):
+
+    auth_data = {
+        "action": "auth",
+        "key": key_id,
+        "secret": secret_key
+    }
+    ws.send(json.dumps(auth_data))
+
+    if first_call:
+        print("Websocket opened.")
+        print("Subscribing to all channels (" + str(len(sub10_symbol_list)) + ").")
+        set_listen_slowly(sub10_symbol_list)
+    
+    else:
+        print("Websocket reopened.")
+        print("Resubscribing to selected channels (" + str(len(symbol_list)) + ").")
+        set_listen_slowly(symbol_list)
+
+    ws.send(json.dumps(listen_slowly))
+
+def on_message(ws, message):
+    
+    if since_market_open.seconds // 60 >= 390:
+        print("Websocket closed for end of day.")
+        ws.close()
+        return
+    
+    #print(message)
+    ticker = make_ticker(message)
+    file(ticker)
+
+def make_ticker(message):
+
+    ticker = {'s': '', 'bar':[{}]}
+    bar = {}
+    key = ''
+    item = ''
+    colon = False
+    index = 0
+
+    def is_float(number):
+        try:
+            float(number)
+            return True
+        except ValueError:
+            return False
+
+    for i in message:
+        if i == ":":
+            if message[index - 1] == "\"":
+                colon = True
+            elif message[index - 1].isnumeric():
+                item += i
+        if i == ",":
+            colon = False
+        if i != "\"" and i != "{" and i != "}" and i != "[" and i != "]" and i != ":" and i != "," and not colon:
+            key += i
+        elif i.isnumeric() or i != "\"" and i != "{" and i != "}" and i != "[" and i != "]" and i != ":" and i != "," and colon:
+            item += i
+        if i == "," and message[index + 1] == "\"" or index + 3 == len(message):
+            if item.isnumeric():
+                bar[key] = float(item)
+            elif is_float(item):
+                bar[key] = float(item)
+            else:
+                bar[key] = item
+            key = ''
+            item = ''
+        index += 1
+
+    ticker['bar'] = bar
+    ticker['s'] = ticker['bar']['S']
+    time = ticker['bar']['t']
+    ticker['bar']['t'] = datetime(
+        year=int(time[0]+time[1]+time[2]+time[3]),
+        month=int(time[5]+time[6]),
+        day=int(time[8]+time[9]),
+        hour=int(time[11]+time[12]),
+        minute=int(time[14]+time[15]),
+        second=int(time[17]+time[18])
+        )
+    return ticker
+
+def file(new_bar):
+    
+    global tickers
+    global message_count
+    message_count += 1
+
+    if len(tickers) == 0:
+        tickers.append(new_bar)
+        handle_bar(new_bar)
+
+    else:
+        index = 0
+
+        for ticker in tickers:
+
+            if ticker['s'] == new_bar['s']:
+                tickers[index] = new_bar
+                index = len(tickers) + 1
+                handle_bar(new_bar)
+
+            elif index + 1 == len(tickers):
+                tickers.append(new_bar)
+                handle_bar(new_bar)
+
+            index += 1
+
+def get_historical_data(wanted_symbol_list, limit: int = 390, prev_day: bool = False):
+
+    end = datetime.now()
+    start = end - timedelta(minutes = 15)
+
+    if prev_day:
+        start = market_open - timedelta(days = 1)
+        end = market_close - timedelta(days = 1)
+
+    minute_history = api.get_barset(
+            symbols = wanted_symbol_list,
+            timeframe = "minute",
+            limit = limit,
+            start = start,
+            end = end
+        )
+    return minute_history
+
+def handle_bar(passed_ticker):
+    
+    global minute_history
+    global minute_history_df
+    global positions
+    global stop_prices
+
+    symbol = passed_ticker['s']
+
+    if symbol not in symbol_list and first_call:
+        check_end(passed_ticker)
+        return
+    
+    ts = passed_ticker['bar']['t']
+    ts -= timedelta(seconds=ts.second, microseconds=ts.microsecond)
+
+    # Now we check to see if it might be time to buy or sell
+    ts = ts.astimezone(nyc)
+    since_market_open = ts - market_open
+    until_market_close = market_close - ts
+    
+    if since_market_open.seconds // 60 >= 15 and since_market_open.seconds // 60 <= 390 and False:
+        symbols_minute_history = minute_history[symbol]
+        symbols_minute_history_df = minute_history_df[symbol]
+    
+    # Buying statement. Only buy after the first 15 minutes and within the first hour
+    if (since_market_open.seconds // 60 > 15 and until_market_close.seconds // 60 > 60):
+        
+        # Checks if we already own shares. If we do then we do not buy more
+        position = positions.get(symbol, 1)
+
+        if position > 0:
+            check_end(passed_ticker)
+            return
+
+        # Checks if stock has enough growth
+        if (passed_ticker['bar']['c'] > max_price.get(symbol, max_share_price + 1) and prev_day_volume.get(symbol, 0) > 30000):
+            
+            # Check that current bar is 3 time larger than the preceeding 15 bars
+            if (passed_ticker['bar']['c'] - passed_ticker['bar']['o']) < 3 * max_candle.get(symbol, 0):
+                check_end(passed_ticker)
+                return
+
+            # Check that preceeding market data has low volatility
+            if volatility_factor.get(symbol, 1) > 0.3:
+                check_end(passed_ticker)
+                return
+
+            # Stock has passed all checks; figure out how much to buy
+            stop_price = passed_ticker['bar']['c'] * default_stop
+            stop_prices[symbol] = stop_price
+            portfolio_value = float(api.get_account().portfolio_value)
+            shares_to_buy = portfolio_value * risk // (passed_ticker['bar']['c'] - stop_price)
+
+            # Will always buy a minimum of 1 share
+            if shares_to_buy == 0:
+                shares_to_buy = 1
+
+            # Safety measure to prevent excessive losses, should never affect shares_to_buy at this point
+            shares_to_buy -= positions.get(symbol, 0)
+
+            # Safety measure, do not buy negative shares
+            if shares_to_buy <= 0:
+                check_end(passed_ticker)
+                return
+
+            print('Submitting buy for {} share(s) of {} at {}'.format(shares_to_buy, symbol, passed_ticker['bar']['c']))
+            try:
+                api.submit_order(
+                    symbol=symbol, 
+                    qty=str(shares_to_buy), 
+                    side='buy',
+                    type='market', 
+                    time_in_force='day',
+                )
+                position[symbol] += shares_to_buy
+            except Exception as e:
+                print(e)
+
+            check_end(passed_ticker)
+            return
+
+        else:
+            check_end(passed_ticker)
+            return
+
+    # Selling statment. Sell shares after first 24 minutes and before last 15 minutes
+    if (since_market_open.seconds // 60 >= 24 and until_market_close.seconds // 60 > 15):
+            
+        # With no positions there is no liquidation
+        position = positions.get(symbol, 0)
+
+        if position == 0:
+            check_end(passed_ticker)
+            return
+        
+        # Sell for a loss if it's fallen below our stop price
+        # Sell for a profit if 2 candles in a row break below the previous candle
+
+        if (
+            passed_ticker['bar']['c'] <= stop_prices.get(symbol, 0) or
+            (minute_history[symbol][-3].l > minute_history[symbol][-2].l and 
+                minute_history[symbol][-2].l > minute_history[symbol][-1].l)
+        ):
+            print('Submitting sell for {} share(s) of {} at {}'.format(position, symbol, passed_ticker['bar']['c']))
+            try:
+                api.submit_order(
+                    symbol=symbol, 
+                    qty=str(position), 
+                    side='sell',
+                    type='market', 
+                    time_in_force='day',
+                )
+                positions[symbol] -= position
+            except Exception as e:
+                print(e)
+
+            check_end(passed_ticker)
+            return
+
+        else:
+            check_end(passed_ticker)
+            return
+
+    # Selling statement. Sell everything if the market is about to close
+    elif (until_market_close.seconds // 60 <= 15):
+        # Liquidate remaining positions on watched symbols at market
+        try:
+            position = api.get_position(symbol)
+        except Exception as e:
+            # Exception here indicates that we have no position
+            check_end(passed_ticker)
+            return
+        
+        print('Trading over, liquidating remaining position in {}'.format(symbol))
+        api.submit_order(
+            symbol=symbol,
+            qty=position.qty,
+            side='sell',
+            type='market',
+            time_in_force='day'
+        )
+        positions[symbol] -= position.qty
+        check_end(passed_ticker)
+
+    else:
+        check_end(passed_ticker)
+        return
+
+def check_end(passed_ticker):
+
+    global message_count
+    global symbol_list
+    global tickers
+    global first_call
+
+    if message_count == len(symbol_list) and not first_call:
+        message_count = 0
+        off_time()
+
+    elif first_call:
+        symbol = passed_ticker['s']
+
+        if (
+            symbol not in symbol_list and 
+            len(symbol_list) < 50 and
+            ((float(passed_ticker['bar']['c']) - float(prev_day_close[symbol])) / float(prev_day_close[symbol])) * 100 >= percent_change
+        ):
+            tickers = []
+            symbol_list.append(symbol)
+
+        elif message_count > len(symbol_list):
+            message_count = 0
+            first_call = False
+            print("Websocket closed.\n")
+            ws.close()
+            load_tickers()
+        else:
+            message_count -= 1
+
+def off_time():
+    
+    global minute_history
+    global minute_history_df
+    global max_price
+    global max_candle
+    global volatility_factor
+    
+    for symbol in symbol_list:
+        minute_history[symbol] = get_historical_data(symbol, limit = 15)
+        minute_history_df[symbol] = minute_history[symbol].df
+        
+        for bar in minute_history[symbol][symbol]:
+
+            if max_price.get(symbol, 0) < bar.h:
+                max_price[symbol] = bar.h
+
+            if max_candle.get(symbol, 0) < bar.c:
+                max_candle[symbol] = bar.c
+        
+        volatility_factor[symbol] = get_volatility_factor(minute_history[symbol][symbol])
+
+def get_volatility_factor(minute_history, amt: int = 15):
+
+    # Calculate the average
+    close_sum = 0
+
+    for bar in minute_history:
+        close_sum += float(bar.c)
+    
+    average = close_sum / amt
+    
+    # Calculate the sum of differences between average and data points
+    diff_sum_square = 0
+    
+    for bar in minute_history:
+        diff_sum_square += (float(bar.c) - average) ** 2
+    
+    return 100 * (1 - (average - math.sqrt(diff_sum_square / amt)) / average)
+
+def update_time():
+    
+    global today
+    global today_str
+    global calendar
+    global market_open
+    global market_close
+    global current_dt
+    global since_market_open
+
+    today = datetime.today().astimezone(nyc)
+    today_str = datetime.today().astimezone(nyc).strftime('%Y-%m-%d')
+    calendar = api.get_calendar(start=today_str, end=today_str)[0]
+    market_open = today.replace(
+        hour = calendar.open.hour,
+        minute = calendar.open.minute,
+        second = 0
+    )
+    market_open = market_open.astimezone(nyc)
+    market_close = today.replace(
+        hour = calendar.close.hour,
+        minute = calendar.close.minute,
+        second = 0
+    )
+    market_close = market_close.astimezone(nyc)
+    current_dt = datetime.today().astimezone(nyc)
+    since_market_open = current_dt - market_open
+
+if __name__ == "__main__":
+
+    next_market_open = market_open
+    prev_day_info(sub10_symbol_list)
+    print("Waiting for market to open...")
+    prep = True
+
+    while True:
+
+        current_time = datetime.now()
+        
+        if (
+            (next_market_open - datetime.now().astimezone(nyc)).seconds // 60 > 1 and 
+            (next_market_open - datetime.now().astimezone(nyc)).seconds // 60 < 15 and 
+            current_time.weekday() != 5 and 
+            current_time.weekday() != 6 and 
+            prep
+        ):
+            prep = False
+            prev_day_info(sub10_symbol_list)
+            update_time()
+
+        if since_market_open.seconds // 60 < 390 and current_time.weekday() != 5 and current_time.weekday() != 6:
+            print("Begin trading " + str(current_time.month) + " " + str(current_time.day) + ", " + str(current_time.year) + ".")
+            first_call = True
+            load_tickers()
+            prep = True
+            next_market_open = market_open + timedelta(days = 1)
+            print("\n\n")
+            print("Waiting for market to open...")
+
+        time.sleep(60)
