@@ -1,291 +1,218 @@
 import alpaca_trade_api as tradeapi
-import requests
 import time
-from ta import trend
-import numpy as np
 import datetime
 from datetime import datetime, timedelta 
 from pytz import timezone
 import pytz
-import math
 import websocket, json
-import pandas
-import timeit
-from collections import deque
-import asyncio
 import threading
 
 # Used for connecting to the Alpaca websocket
-base_url = "https://paper-api.alpaca.markets"
-key_id = "PKI81TWCXACB0ZK1RD73"
-secret_key = "rOP4ANEtfUv1opiSoznHWK8Y4P0tIhEyT4DB7dvC"
-{"action": "auth", "key": "PKI81TWCXACB0ZK1RD73", "secret": "rOP4ANEtfUv1opiSoznHWK8Y4P0tIhEyT4DB7dvC"}
-api = tradeapi.REST(base_url = base_url, key_id = key_id, secret_key = secret_key)
-
-# Used selecting appropriate stocks within our buying capabilities
-min_share_price = 2.0
-max_share_price = 10.0
-min_last_dv = 500000
-percent_change = 0.025
-
-# Used as security measures
-default_stop = 0.7
-risk = 0.001
+base_url="https://paper-api.alpaca.markets"
+key_id="PK8SMHYDMZQKATKYHZR0"
+secret_key="6jbn4qlYnYcZO8mFILlasMkHWolyTfvJhDWlrUKo"
+api=tradeapi.REST(base_url=base_url,key_id=key_id,secret_key=secret_key)
 
 # Time variables used to calculate the open time, close time, time to close, etc
-nyc = timezone('America/New_York')
-today = datetime.today().astimezone(nyc)
-today_str = datetime.today().astimezone(nyc).strftime('%Y-%m-%d')
-calendar = api.get_calendar(start=today_str, end=today_str)[0]
-market_open = today.replace(
-    hour = calendar.open.hour,
-    minute = calendar.open.minute,
-    second = 0)
-market_open = market_open.astimezone(nyc)
-market_close = today.replace(
-    hour = calendar.close.hour,
-    minute = calendar.close.minute,
-    second = 0)
-market_close = market_close.astimezone(nyc)
-current_dt = datetime.today().astimezone(nyc)
-since_market_open = current_dt - market_open
+nyc=timezone('America/New_York')
+today=datetime.today().astimezone(nyc)
+today_str=datetime.today().astimezone(nyc).strftime('%Y-%m-%d')
+calendar=api.get_calendar(start=today_str, end=today_str)[0]
+market_open=today.replace(
+    hour=calendar.open.hour,
+    minute=calendar.open.minute,
+    second=0)
+market_open=market_open.astimezone(nyc)
+market_close=today.replace(
+    hour=calendar.close.hour,
+    minute=calendar.close.minute,
+    second=0)
+market_close=market_close.astimezone(nyc)
+current_dt=datetime.today().astimezone(nyc)
+since_market_open=current_dt-market_open
 
 # Running variables holding security data
-sub10_symbol_list = ['AAPL', 'MSFT', 'GOOGL']#['CETX', 'COTY', 'GBR', 'AAC', 'JWSM', 'LOAN', 'NEWP', 'OSI', 'IMRN', 'SVA', 'MF', 'RVACU', 'BGI', 'SBII', 'AJAX', 'AAC.U', 'AACG', 'AAIC', 'AAME', 'AAOI', 'AAQC', 'AATC', 'AAU', 'ABEO', 'ABEV', 'ABGI', 'ABIO', 'ABUS', 'ABVC', 'ACAH', 'ACAHU', 'ACB', 'ACBA', 'ACCO', 'ACER', 'ACET', 'ACEV', 'ACHL', 'ACHV', 'ACIC', 'ACII', 'ACII.U', 'ACIU', 'ACKIT', 'ACOR', 'ACQR', 'ACQRU', 'ACRO.U', 'ACRX', 'ACST', 'ACTD', 'ACTG', 'ACXP', 'ADAP', 'ADER', 'ADES', 'ADEX', 'ADEX.U', 'ADF', 'ADFI', 'ADIL', 'ADMA', 'ADMP', 'ADMS', 'ADN', 'ADOCR', 'ADRA', 'ADT', 'ADTX', 'ADV', 'ADVM', 'ADXS', 'AEAC', 'AEF', 'AEG', 'AEHL', 'AEHR', 'AEI', 'AEMD', 'AENZ', 'AESE', 'AEVA', 'AEY', 'AEZS', 'AFAQ', 'AFAQU', 'AFI', 'AFIF', 'AFIN', 'AFMD', 'AGAC', 'AGBAR', 'AGCB', 'AGE', 'AGEN', 'AGFS', 'AGGR', 'AGI', 'AGLE', 'AGMH', 'AGRI', 'AGRO', 'AGRX', 'AGS', 'AGTC', 'AHAC', 'AHPI', 'AIH', 'AIHS', 'AIKI', 'AIM', 'AIRI', 'AIV', 'AKBA', 'AKIC', 'AKTS', 'AKTX', 'AKU', 'ALACR', 'ALCC', 'ALDX', 'ALF', 'ALIM', 'ALJJ', 'ALNA', 'ALPAU', 'ALPN', 'ALRN', 'ALTO', 'ALTU', 'ALYA', 'ALZN', 'AM', 'AMAO', 'AMBO', 'AMCIU', 'AMHC', 'AMHCU', 'AMPE', 'AMPG', 'AMPI', 'AMPI.U', 'AMPY', 'AMRN', 'AMRX', 'AMS', 'AMST', 'AMTX', 'ANAC', 'ANAC.U', 'ANEB', 'ANIX', 'ANPC', 'ANTE', 'ANY', 'ANZU', 'ANZUU', 'AP', 'APACU', 'APDN', 'APEN', 'APGB', 'APGB.U', 'APM', 'APOP', 'APRE', 'APRN', 'APSG', 'APT', 'APTMU', 'APTO', 'APTX', 'APWC', 'APYX', 'AQB', 'AQMS', 'AQST', 'ARAV', 'ARAY', 'ARBG', 'ARBGU', 'ARC', 'ARCO', 'ARDS', 'ARDX', 'AREC', 'ARKO', 'ARLO', 'ARLP', 'ARMP', 'AROC', 'ARPO', 'ARRW', 'ARTA', 'ARTAU', 'ARTL', 'ARTW', 'ARYE', 'ASAQ', 'ASAX', 'ASC', 'ASG', 'ASLN', 'ASM', 'ASMB', 'ASPC', 'ASPS', 'ASPU', 'ASRT', 'ASRV', 'ASTC', 'ASUR', 'ASX', 'ASXC', 'ASYS', 'ASZ', 'ASZ.U', 'ATA', 'ATAQ', 'ATAQ.U', 'ATAX', 'ATER', 'ATHA', 'ATHE', 'ATHN', 'ATHX', 'ATIF', 'ATIP', 'ATMR', 'ATNF', 'ATNM', 'ATNX', 'ATOS', 'ATRS', 'ATSPT', 'ATSPU', 'ATVC', 'ATVCU', 'ATXI', 'ATY', 'AUD', 'AUMN', 'AURC', 'AUS', 'AUTL', 'AUTO', 'AUUD', 'AUVI', 'AUY', 'AVAH', 'AVAL', 'AVAN', 'AVCO', 'AVCT', 'AVDL', 'AVEO', 'AVGR', 'AVRO', 'AWH', 'AWP', 'AWRE', 'AWX', 'AXDX', 'AXL', 'AXLA', 'AXTI', 'AXU', 'AYRO', 'AYTU', 'AZRX', 'AZYO', 'BALT', 'BAOS', 'BARK', 'BBAR', 'BBCP', 'BBD', 'BBDO', 'BBGI', 'BBI', 'BBIG', 'BBVA', 'BCAC', 'BCDA', 'BCEL', 'BCLI', 'BCTG', 'BCTX', 'BCX', 'BCYP', 'BDR', 'BDSI', 'BDSX', 'BDTX', 'BEDU', 'BENE', 'BENER', 'BEST', 'BFRA', 'BGCP', 'BGIO', 'BGR', 'BGRY', 'BGSX', 'BGSX.U', 'BGY', 'BHAT', 'BHG', 'BHR', 'BHSE', 'BHTG', 'BIMI', 'BIOC', 'BIOL', 'BIOT', 'BITE', 'BITE.U', 'BITF', 'BKCC', 'BKD', 'BKEP', 'BKEPP', 'BKT', 'BKTI', 'BKYI', 'BLCM', 'BLCT', 'BLDE', 'BLIN', 'BLNGU', 'BLPH', 'BLRX', 'BLSA', 'BLTS', 'BLU', 'BLUA', 'BLUA.U', 'BMRA', 'BNED', 'BNGO', 'BNSO', 'BNTC', 'BOAC', 'BOAS', 'BOAS.U', 'BODY', 'BORR', 'BOSC', 'BOWX', 'BOXL', 'BPT', 'BPTH', 'BQ', 'BRCN', 'BREZR', 'BRFS', 'BRIV', 'BRIVU', 'BRLIR', 'BRN', 'BROG', 'BRPM', 'BRQS', 'BRSP', 'BRW', 'BRY', 'BSBR']
-symbol_list = []
-tickers = {}
-history15 = {}
-averages = {}
-last_trade_open = {}
-last_trade_id = {}
-scale = 200
-symbol_count = 0
-first_call = True
-start_message_time = datetime.now()
-new_message = ""
+symbol_list=['AAPL','MSFT','GOOGL']
+history15={}
+averages={}
+positions={}
+last_trade_open={}
+scale=100
+start_message_time=datetime.now()
+new_message=[]
+
+def main():
+    next_market_open=market_open
+    print('Waiting for market to open...')
+    while True:
+        current_time=datetime.now()
+        if since_market_open.seconds//60<390 and current_time.weekday()!=5 and current_time.weekday()!=6:
+            print('Begin trading {}/{}/{}.'.format(current_time.month,current_time.day,current_time.year))
+            print()
+            #open_websocket()
+            next_market_open=market_open+timedelta(days=1)
+            print('Waiting for market to open...')
+            print()
+        time.sleep(60)
+        update_time()
 
 def open_websocket():
-    
     global ws
-    
-    ws = websocket.WebSocketApp(
+    ws=websocket.WebSocketApp(
         "wss://stream.data.alpaca.markets/v2/iex", 
-        on_open = on_open,
-        on_message = on_message
+        on_open=on_open,
+        on_message=on_message
     )
-    
     ws.run_forever()
     return
 
 def on_open(ws):
-
-    auth_data = {"action": "auth", "key": key_id, "secret": secret_key}
-    listen_to_channels = {"action":"subscribe","bars":sub10_symbol_list}
-
+    auth_data={"action": "auth", "key": key_id, "secret": secret_key}
+    listen_to_channels={"action":"subscribe","bars":symbol_list}
     ws.send(json.dumps(auth_data))
     ws.send(json.dumps(listen_to_channels))
 
-def on_message(message):
-    
-    global symbol_count
+def on_message(ws, message):
     global start_message_time
     global first_call
     global new_message
-
-    '''
-    async def async_run_bars():
-        print(time.strftime('%X'))
-        coros = [handle_minute_bar(ticker) for ticker in range(tickers)]
-        await asyncio.gather(*coros)
-        print(time.strftime('%X'))
-    
-    if since_market_open.seconds // 60 >= 390 and False:
-        print('Websocket closed, {}.{}.{}.'.format(today.month, today.day, today.year))
+    #print(message)
+    if since_market_open.seconds//60>=385:
+        print('Ending trading, {}/{}/{}.'.format(today.month, today.day, today.year))
+        print()
         ws.close()
         return
-    
-    if first_call:
-        start_message_time = datetime.now()
-        first_call = False
-    '''
-    print(message)
-    '''
-    new_message = message
-    thread = threading.Thread(trigger = trigger)
-    thread.start()
-    
-    if symbol_count == len(tickers) and len(tickers) != 0 and not first_call:
-        print(tickers)
-        symbol_count = 0
-        #asyncio.run(async_run_bars())
-    '''
-def trigger():
-    print(message)
-    time.sleep(5)
-    print(datetime.now())
+
+    tp=message[0:15]
+    for i in range(12):
+        if (tp[i]=='T' and 
+        tp[i+1]=='"' and 
+        tp[i+2]==':' and 
+        tp[i+3]=='"' and
+        tp[i+4]=='d'):
+            new_message.append(message)
+            thread=threading.Thread(target=get_close_price)
+            thread.start()
 
 def get_close_price():
-
-    global tickers
-    global symbol_count
-    print("here")
-    ticker = {'s': '', 'c':''}
-    item = ''
-    append = False
-    first = True
-    i = 0
-    
-    for char in new_message:
-
-        if append and (char.isnumeric() or char.isalpha() or char == '.'):
-            item += char
-
-            if new_message[i+1] == '"' or new_message[i+1] == ',':
-
+    global new_message
+    ticker={'s':'','c':''}
+    item=''
+    append=False
+    first=True
+    i=0
+    message=new_message.pop(0)
+    for char in message:
+        if append and (char.isnumeric() or char.isalpha() or char=='.'):
+            item+=char
+            if message[i+1]=='"' or message[i+1]==',':
                 if first:
-                    ticker['s'] = item
-                    first = False
-                    item = ''
-
+                    ticker['s']=item
+                    first=False
+                    item=''
                 else:
-                    ticker['c'] = item
+                    ticker['c']=float(item)
+                append=False
 
-                append = False
-
-        if (char == 'S' or char == 'c') and new_message[i+1] == '"':
-            append = True
-
-        i += 1
-
-    if len(ticker['s']) != 0:
-        symbol_count += 1
-        tickers[ticker['s']] = ticker
-        sort15(ticker)
-
-    handle_ticker_bar(ticker)
-
+        if (char=='S' or char=='c') and message[i+1]=='"':
+            append=True
+        i+=1
+    sort15(ticker)
+    if len(hisotry15)==15:
+        handle_ticker_bar(ticker)
+    
 def sort15(ticker):
-
     global history15
     global averages
+    avg_len=15
+    if history15.get(ticker['s'],0)==0:
+        history15[ticker['s']]=[float(ticker['c'])]
 
-    if history15.get(ticker['s'], None) == None:
-        history15[ticker['s']] = deque()
+    elif len(history15[ticker['s']])!=avg_len:
+        history15[ticker['s']].append(float(ticker['c']))
 
-    if len(history15[ticker['s']]) != 15:
-        history15[ticker['s']].append(ticker['c'])
+    elif len(history15[ticker['s']])==avg_len:
+        history15[ticker['s']].pop(0)
+        history15[ticker['s']].append(float(ticker['c']))
+        averages[ticker['s']]=sum(history15[ticker['s']])/avg_len
 
-    elif len(history15[ticker['s']]) == 15:
-        hisotyr15[ticker['s']].popleft()
-        history15[ticker['s']].append(ticker['c'])
-        total_sum = 0
-
-        for close in history15[ticker['s']]:
-            total_sum += float(close)
-        
-        averages[ticker['s']] = total_sum / 15
+def volatility(symbol):
+    avg=sum(history15[symbol])/len(history15[symbol])
+    diff_sum_square = 0 # Calculate the sum of differences between average and data points
+    for value in history15[symbol]:
+        diff_sum_square+=(value-avg)**2
+    return (1/len(history15[symbol])*diff_sum_square)**0.5
 
 def handle_minute_bar(ticker):
-    print("handle_minute_bar triggered")
-    time.sleep(5)
-    print("finished handle_minute_bar")
-    '''
-    if len(history15[ticker['c']]) > 14:
-        symbol = ticker['s']
-        difference = averages[symbol] - ticker['c']
-
-        if last_trade_open[symbol]:
-            await api.cancel_order(last_trade_id[[symbol]])
-
-        account = await api.get_account()
-        buying_power = account.buying_power
-        equity = account.equity
-        multiplier = account.multiplier
-
-        position_quantity = 0
-        position_value = 0
-
+    global positions
+    if len(history15[ticker['s']])>14:
+        symbol=ticker['s']
+        difference=averages[symbol]-ticker['c']
+        
+        if last_trade_open[symbol][0]:
+            api.cancel_order(last_trade_open[symbol][1])
+        
+        account=api.get_account()
+        buying_power=float(account.buying_power)
+        equity=float(account.equity)
+        multiplier=float(account.multiplier)
+        position_quantity=0
+        position_value=0
+        
         try:
-            position = await api.get_position(symbol)
-            position_quantity = position.quantity
-            position_value = position.MarketValue
+            position=api.get_position(symbol)
+            position_quantity=float(position.qty)
+            position_value=float(position.current_price)
         except Exception as e:
             # No positions exist
-            i = e
-
-        if difference <= 0:
+            i=e
+        if difference<0 and position_quantity>0:
+            submit_order(symbol,position_quantity,'sell','market','day')
+            position[symbol]-=position_quantity
+        elif difference>0 and position_quantity<=0 and volatility(symbol)<1 and buying_power>10:
+            portfolio_share=difference/ticker['c']*scale
+            target_position_value=equity*multiplier*portfolio_share
+            amount_to_long=target_position_value-position_value
             
-            if position_quantity > 0:
-                print('Removing {} position(s)'.format(position_value))
+            if amount_to_long>buying_power:
+                amount_to_long=buying_power
+            
+            quantity=amount_to_long/ticker['c']
+            submit_order(symbol,quantity,'buy','market','day')
 
-            else:
-                portfolio_share = -1 * difference / ticker['c'] * scale
-                target_position_value = -1 * equity * multiplier * portfolio_share
-                amount_to_short = target_position_value - position_value
-
-                if amount_to_short < 0:
-                    amount_to_short *= -1
-
-                    if amount_to_short > buying_power:
-                        amount_to_short = buying_power
-
-                    quantity = amount_to_short / ticker['c']
-                    print('Adding {} to short position.'.format(quantity * ticker['c']))
-                    await submit_order(quantity = quantity, closing_price = ticker['c'], order_side = 'sell', symbol = ticker['s'])
-
-                else:
-                    quantity = amount_to_short / ticker['c']
-                    
-                    if quantity > -1 * position_quantity:
-                        quantity = -1 * position_quantity
-
-                    print('Removing {} from short position.'.format(quantity * ticker['c']))
-                    await submit_order(quantity = quantity, closing_price = ticker['c'], order_side = 'buy', symbol = ticker['s'])
-
-        else:
-            portfolio_share = difference / ticker['c'] * scale
-            target_position_value = equity * multiplier * portfolio_share
-            amount_to_long = target_position_value - position_value
-
-            if position_quantity > 0:
-
-                if amount_to_long > buying_power:
-                    amount_to_long = buying_power
-
-                quantity = amount_to_long / ticker['c']
-                await submit_order(quantity = quantity, closing_price = ticker['c'], order_side = 'buy', symbol = ticker['s'])
-                print('Adding {} to long position.'.format(quantity * ticker['c']))
-
-            else:
-                amount_to_long *= -1
-                quantity = amount_to_long / ticker['c']
-                
-                if quantity > position_quantity:
-                    quantity = position_quantity
-
-                await submit_order(quantity = quantity, closing_price = ticker['c'], order_side = 'sell', symbol = ticker['s'])
-                print('Removing {} from long position.'.format(quantity * ticker['c']))
-    '''
-
-async def submit_order(quantity, closing_price, order_side, symbol):
-
-    if quantity == 0:
+def submit_order(symbol,qty,side,market_type,time_in_force):
+    global last_trade_open
+    if qty==0:
         return
-
     try:
-        order = await api.submit_order(
-            symbol = symbol,
-            quantity = quantity,
-            side = order_side,
-            type = 'limit',
-            time_in_force = opg,
-            limit_price = closing_price
+        order=api.submit_order(
+            symbol=str(symbol),
+            qty=str(qty),
+            side=str(side),
+            type=str(market_type),
+            time_in_force=str(time_in_force)
         )
-
-        last_trade_id[symbol] = order.id
-        last_trade_open[symbol] = True
+        if side=='sell':
+            print('Removing {} {} to positions.'.format(qty,symbol))
+        elif side=='buy':
+            print('Adding {} {} to positions.'.format(qty,symbol))
+        if order.status!='accepted':
+            last_trade_open[symbol]=[True,order.id]
+        else: last_trade_open[symbol]=[False,order.id]
     except Exception as e:
-        print('Warning: ' + e)
+        print('Warning: '+str(e))
+
+def liquidate():
+    global positions
+    for symbol in positions:
+        submit_order(
+            symbol=symbol,
+            qty=positions[symbol],
+            side='sell',
+            market_type='market',
+            time_in_force='day'
+        )
+        position.pop(symbol)
 
 def update_time():
     
@@ -315,12 +242,5 @@ def update_time():
     current_dt = datetime.today().astimezone(nyc)
     since_market_open = current_dt - market_open
 
-#print(time.strftime('%X'))
-open_websocket()
-#print(time.strftime('%X'))
 if __name__ == "__main__" and False:
-
-    while True:
-
-        if since_market_open.seconds // 60 > 15:
-            open_websocket()
+    main()
